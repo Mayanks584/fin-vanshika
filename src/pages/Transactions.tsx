@@ -11,8 +11,12 @@ import {
   deleteTransaction,
   type Transaction,
 } from "@/services/transactionService";
+import EditTransactionDialog from "@/components/EditTransactionDialog";
 
-const allCategories = ["Salary", "Freelance", "Investment", "Food", "Travel", "Shopping", "Rent", "Others"];
+const allCategories = [
+  "Salary", "Freelance", "Investment",
+  "Food", "Travel", "Shopping", "Rent", "Others",
+];
 
 export default function Transactions() {
   const { user } = useAuth();
@@ -20,6 +24,7 @@ export default function Transactions() {
   const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterMonth, setFilterMonth] = useState("all");
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -56,8 +61,8 @@ export default function Transactions() {
     }
   };
 
-  const handleEdit = (id: string) => {
-    toast({ title: "Edit", description: `Editing transaction ${id} (feature coming soon)` });
+  const handleUpdated = (updated: Transaction) => {
+    setTransactions(prev => prev.map(t => (t.id === updated.id ? updated : t)));
   };
 
   if (loading) {
@@ -149,10 +154,20 @@ export default function Transactions() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(t.id)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => setEditingTransaction(t)}
+                        >
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(t.id)}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(t.id)}
+                        >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
@@ -164,6 +179,14 @@ export default function Transactions() {
           </Table>
         </div>
       </motion.div>
+
+      {/* Edit Dialog */}
+      <EditTransactionDialog
+        transaction={editingTransaction}
+        open={!!editingTransaction}
+        onClose={() => setEditingTransaction(null)}
+        onUpdated={handleUpdated}
+      />
     </div>
   );
 }

@@ -129,7 +129,7 @@ export default function BudgetPage() {
         <div className="flex flex-col sm:flex-row gap-4 items-end">
           <div className="flex-1 space-y-2 w-full">
             <Label>Budget Limit (₹)</Label>
-            <Input type="number" value={overallBudget} onChange={e => setOverallBudget(e.target.value)} />
+            <Input type="number" value={overallBudget} onChange={e => setOverallBudget(e.target.value)} onFocus={e => e.target.select()} />
           </div>
           <div className="flex-1 w-full">
             <div className="flex justify-between text-sm mb-1">
@@ -171,6 +171,7 @@ export default function BudgetPage() {
                     type="number"
                     value={b.limit}
                     onChange={e => handleLimitChange(b.category, e.target.value)}
+                    onFocus={e => e.target.select()}
                     className="w-24 h-8 text-sm"
                   />
                 </div>

@@ -2,16 +2,21 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { TrendingUp } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { addTransaction } from "@/services/transactionService";
 
+const incomeCategories = ["Salary", "Freelance", "Investment", "Others"] as const;
+
 export default function AddIncome() {
   const [amount, setAmount] = useState("");
-  const [source, setSource] = useState("");
+  const [category, setCategory] = useState("");
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { toast } = useToast();
@@ -20,7 +25,7 @@ export default function AddIncome() {
   const validate = () => {
     const e: Record<string, string> = {};
     if (!amount || Number(amount) <= 0) e.amount = "Enter a positive amount";
-    if (!source.trim()) e.source = "Source is required";
+    if (!category) e.category = "Select a category";
     if (!date) e.date = "Date is required";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -35,14 +40,15 @@ export default function AddIncome() {
         user_id: user.id,
         type: "income",
         amount: Number(amount),
-        category: source,
-        description: `Income from ${source}`,
-        date: date,
+        category,
+        description: description.trim() || `Income from ${category}`,
+        date,
       });
-      toast({ title: "Income added!", description: `₹${Number(amount).toLocaleString()} from ${source}` });
+      toast({ title: "Income added!", description: `₹${Number(amount).toLocaleString()} from ${category}` });
       setAmount("");
-      setSource("");
+      setCategory("");
       setDate(new Date().toISOString().split("T")[0]);
+      setDescription("");
       setErrors({});
     } catch (err: any) {
       toast({ title: "Error", description: err?.message || "Failed to add income", variant: "destructive" });
@@ -74,19 +80,57 @@ export default function AddIncome() {
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
             <Label htmlFor="amount">Amount (₹)</Label>
-            <Input id="amount" type="number" min="0" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} className={errors.amount ? "border-destructive" : ""} />
+            <Input
+              id="amount"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              className={errors.amount ? "border-destructive" : ""}
+            />
             {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
           </div>
+
           <div className="space-y-2">
-            <Label htmlFor="source">Source</Label>
-            <Input id="source" placeholder="e.g. Salary, Freelance" value={source} onChange={e => setSource(e.target.value)} className={errors.source ? "border-destructive" : ""} />
-            {errors.source && <p className="text-xs text-destructive">{errors.source}</p>}
+            <Label>Category</Label>
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger className={errors.category ? "border-destructive" : ""}>
+                <SelectValue placeholder="Select income source" />
+              </SelectTrigger>
+              <SelectContent>
+                {incomeCategories.map(c => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.category && <p className="text-xs text-destructive">{errors.category}</p>}
           </div>
+
           <div className="space-y-2">
             <Label htmlFor="date">Date</Label>
-            <Input id="date" type="date" value={date} onChange={e => setDate(e.target.value)} className={errors.date ? "border-destructive" : ""} />
+            <Input
+              id="date"
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className={errors.date ? "border-destructive" : ""}
+            />
             {errors.date && <p className="text-xs text-destructive">{errors.date}</p>}
           </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="description">Description (optional)</Label>
+            <Textarea
+              id="description"
+              placeholder="e.g. Monthly salary from company, freelance project..."
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={3}
+            />
+          </div>
+
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Adding..." : "Add Income"}
           </Button>

@@ -83,6 +83,21 @@ export async function deleteTransaction(id: string): Promise<void> {
     if (error) throw error;
 }
 
+export async function updateTransaction(
+    id: string,
+    updates: Partial<Pick<Transaction, "amount" | "category" | "description" | "date" | "type">>
+): Promise<Transaction> {
+    const { data, error } = await supabase
+        .from("transactions")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+}
+
 export function computeSummary(transactions: Transaction[]) {
     const totalIncome = transactions
         .filter((t) => t.type === "income")
@@ -94,7 +109,7 @@ export function computeSummary(transactions: Transaction[]) {
         totalIncome,
         totalExpense,
         balance: totalIncome - totalExpense,
-        savings: Math.round((totalIncome - totalExpense) * 0.6),
+        savings: totalIncome - totalExpense,
     };
 }
 
