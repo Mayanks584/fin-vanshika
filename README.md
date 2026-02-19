@@ -1,73 +1,112 @@
-# Welcome to your Lovable project
+# 💰 Personal Finance Manager
 
-## Project info
+A modern, full-stack personal finance management application built with React and powered by Supabase.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## ✨ Features
 
-## How can I edit this code?
+- **🔐 Authentication** — Secure signup & login with Supabase Auth
+- **📊 Dashboard** — Visual overview with income/expense charts and summary cards
+- **💵 Add Income** — Record income entries with source and date
+- **💸 Add Expense** — Track expenses by category (Food, Travel, Shopping, Rent, Others)
+- **📋 Transactions** — View, filter, and delete all transactions
+- **📈 Budget Management** — Set category-wise budget limits and track spending
+- **🔒 Row Level Security** — Each user can only see their own data
 
-There are several ways of editing your application.
+## 🛠️ Tech Stack
 
-**Use Lovable**
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Vite |
+| UI | ShadCN UI, Tailwind CSS, Framer Motion |
+| Backend | Supabase (Auth + PostgreSQL) |
+| Charts | Recharts |
+| Routing | React Router v6 |
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## 🚀 Getting Started
 
-Changes made via Lovable will be committed automatically to this repo.
+### Prerequisites
 
-**Use your preferred IDE**
+- Node.js (v18+)
+- npm
+- A [Supabase](https://supabase.com) project
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Setup
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+```bash
+# 1. Clone the repo
+git clone https://github.com/Mayanks584/fin-vanshika.git
+cd fin-vanshika
 
-Follow these steps:
+# 2. Install dependencies
+npm install
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+# 3. Create .env file with your Supabase credentials
+cp .env.example .env
+# Edit .env and add your VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# 4. Start the dev server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### Environment Variables
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+Create a `.env` file in the root directory:
 
-**Use GitHub Codespaces**
+```env
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Database Setup
 
-## What technologies are used for this project?
+Run this SQL in your Supabase SQL Editor to create the required tables:
 
-This project is built with:
+```sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+CREATE TABLE transactions (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  type TEXT CHECK (type IN ('income', 'expense')) NOT NULL,
+  amount NUMERIC NOT NULL,
+  category TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  source TEXT,
+  date DATE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-## How can I deploy this project?
+CREATE TABLE budgets (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  category TEXT NOT NULL,
+  limit_amount NUMERIC NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, category)
+);
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+-- Enable RLS
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE budgets ENABLE ROW LEVEL SECURITY;
 
-## Can I connect a custom domain to my Lovable project?
+-- Policies (users can only access their own data)
+CREATE POLICY "Users can manage own transactions" ON transactions FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY "Users can manage own budgets" ON budgets FOR ALL USING (auth.uid() = user_id);
+```
 
-Yes, you can!
+## 📁 Project Structure
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+```
+src/
+├── components/       # UI components (ShadCN + custom)
+├── contexts/         # Auth context (Supabase)
+├── lib/              # Supabase client config
+├── pages/            # App pages (Dashboard, Login, etc.)
+├── services/         # Supabase CRUD services
+├── hooks/            # Custom React hooks
+└── layouts/          # Dashboard layout
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## 👤 Author
+
+**Mayank Rana** — [@Mayanks584](https://github.com/Mayanks584)
