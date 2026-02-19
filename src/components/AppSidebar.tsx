@@ -6,6 +6,7 @@ import {
   TrendingDown,
   Wallet,
   ArrowLeftRight,
+  FileBarChart,
   LogOut,
   DollarSign,
   Menu,
@@ -20,6 +21,7 @@ const navItems = [
   { to: "/expense", label: "Expense", icon: TrendingDown },
   { to: "/budget", label: "Budget", icon: Wallet },
   { to: "/transactions", label: "Transactions", icon: ArrowLeftRight },
+  { to: "/reports", label: "Reports", icon: FileBarChart },
 ];
 
 export default function AppSidebar() {
@@ -67,10 +69,10 @@ export default function AppSidebar() {
       <div className="px-3 py-4 border-t border-sidebar-border">
         <div className="flex items-center gap-3 px-3 py-2 mb-2">
           <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-xs font-bold text-sidebar-accent-foreground">
-            {user?.name?.charAt(0) || "U"}
+            {user?.user_metadata?.full_name?.charAt(0) || user?.email?.charAt(0)?.toUpperCase() || "U"}
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-medium text-sidebar-accent-foreground truncate">{user?.name || "User"}</span>
+            <span className="text-sm font-medium text-sidebar-accent-foreground truncate">{user?.user_metadata?.full_name || "User"}</span>
             <span className="text-xs text-sidebar-foreground truncate">{user?.email || ""}</span>
           </div>
         </div>
