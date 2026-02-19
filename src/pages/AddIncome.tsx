@@ -37,7 +37,6 @@ export default function AddIncome() {
         amount: Number(amount),
         category: source,
         description: `Income from ${source}`,
-        source: source,
         date: date,
       });
       toast({ title: "Income added!", description: `₹${Number(amount).toLocaleString()} from ${source}` });

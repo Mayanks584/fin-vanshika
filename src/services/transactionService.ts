@@ -7,7 +7,6 @@ export interface Transaction {
     amount: number;
     category: string;
     description: string;
-    source?: string;
     date: string;
     created_at: string;
 }
@@ -21,6 +20,45 @@ export async function getTransactions(userId: string): Promise<Transaction[]> {
 
     if (error) throw error;
     return data || [];
+}
+
+export async function getTransactionsByDateRange(
+    userId: string,
+    startDate: string,
+    endDate: string
+): Promise<Transaction[]> {
+    const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .eq("user_id", userId)
+        .gte("date", startDate)
+        .lte("date", endDate)
+        .order("date", { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+}
+
+export function exportToCSV(transactions: Transaction[], filename = "transactions.csv"): void {
+    const headers = ["Date", "Type", "Category", "Description", "Amount"];
+    const rows = transactions.map((t) => [
+        t.date,
+        t.type,
+        t.category,
+        `"${t.description.replace(/"/g, '""')}"`,
+        t.amount.toString(),
+    ]);
+
+    const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 }
 
 export async function addTransaction(

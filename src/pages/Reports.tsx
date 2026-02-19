@@ -1,265 +1,351 @@
-import { useMemo, useState } from "react";
-import { format, isWithinInterval, parseISO, startOfMonth, endOfMonth, subMonths } from "date-fns";
-import { CalendarIcon, Download, TrendingUp, TrendingDown, BarChart3, PieChart as PieChartIcon } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
 import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, AreaChart, Area,
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+    PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { mockTransactions, expenseCategories } from "@/data/mockData";
 import { motion } from "framer-motion";
+import {
+    TrendingUp, TrendingDown, Wallet, Percent, Download, CalendarRange,
+    ArrowUpRight, ArrowDownRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+    getTransactions,
+    computeSummary,
+    computeMonthlyData,
+    computeCategoryExpenses,
+    exportToCSV,
+    type Transaction,
+} from "@/services/transactionService";
 
-const fadeUp = {
-  initial: { opacity: 0, y: 16 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.4 },
+const CATEGORY_COLORS: Record<string, string> = {
+    Food: "hsl(174, 62%, 38%)",
+    Rent: "hsl(217, 70%, 55%)",
+    Travel: "hsl(38, 92%, 50%)",
+    Shopping: "hsl(0, 72%, 55%)",
+    Others: "hsl(152, 60%, 42%)",
+    Salary: "hsl(195, 70%, 45%)",
+    Freelance: "hsl(270, 60%, 55%)",
+    Investment: "hsl(45, 85%, 50%)",
 };
 
-function downloadCSV(data: typeof mockTransactions, filename: string) {
-  const headers = ["Date", "Type", "Category", "Description", "Amount", "Source"];
-  const rows = data.map(t => [
-    t.date,
-    t.type,
-    t.category,
-    t.description,
-    t.amount.toString(),
-    t.source || "",
-  ]);
-  const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+const PRESETS = [
+    { label: "This Month", getValue: () => { const n = new Date(); return { start: `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-01`, end: today() }; } },
+    { label: "Last Month", getValue: () => { const n = new Date(); n.setMonth(n.getMonth() - 1); const y = n.getFullYear(), m = String(n.getMonth() + 1).padStart(2, "0"), last = new Date(y, n.getMonth() + 1, 0).getDate(); return { start: `${y}-${m}-01`, end: `${y}-${m}-${last}` }; } },
+    { label: "Last 3 Months", getValue: () => { const n = new Date(); const s = new Date(n.getFullYear(), n.getMonth() - 2, 1); return { start: s.toISOString().slice(0, 10), end: today() }; } },
+    { label: "This Year", getValue: () => ({ start: `${new Date().getFullYear()}-01-01`, end: today() }) },
+    { label: "All Time", getValue: () => ({ start: "2000-01-01", end: today() }) },
+];
+
+function today() {
+    return new Date().toISOString().slice(0, 10);
 }
+
+function thisMonthStart() {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+const fadeUp = { initial: { opacity: 0, y: 16 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.4 } };
 
 export default function Reports() {
-  const { toast } = useToast();
-  const now = new Date();
-  const [startDate, setStartDate] = useState<Date>(startOfMonth(subMonths(now, 5)));
-  const [endDate, setEndDate] = useState<Date>(endOfMonth(now));
+    const { user } = useAuth();
+    const { toast } = useToast();
+    const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [startDate, setStartDate] = useState(thisMonthStart());
+    const [endDate, setEndDate] = useState(today());
+    const [activePreset, setActivePreset] = useState("This Month");
 
-  const filtered = useMemo(() => {
-    return mockTransactions.filter(t => {
-      const d = parseISO(t.date);
-      return isWithinInterval(d, { start: startDate, end: endDate });
-    });
-  }, [startDate, endDate]);
+    useEffect(() => {
+        if (!user) return;
+        getTransactions(user.id)
+            .then(setAllTransactions)
+            .catch(console.error)
+            .finally(() => setLoading(false));
+    }, [user]);
 
-  const totalIncome = useMemo(() => filtered.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0), [filtered]);
-  const totalExpense = useMemo(() => filtered.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0), [filtered]);
-  const netSavings = totalIncome - totalExpense;
-  const savingsRate = totalIncome > 0 ? Math.round((netSavings / totalIncome) * 100) : 0;
+    const filtered = useMemo(
+        () => allTransactions.filter(t => t.date >= startDate && t.date <= endDate),
+        [allTransactions, startDate, endDate]
+    );
 
-  // Category breakdown
-  const categoryData = useMemo(() => {
-    const map: Record<string, number> = {};
-    filtered.filter(t => t.type === "expense").forEach(t => {
-      map[t.category] = (map[t.category] || 0) + t.amount;
-    });
-    const colors = [
-      "hsl(174, 62%, 38%)", "hsl(217, 70%, 55%)", "hsl(38, 92%, 50%)",
-      "hsl(0, 72%, 55%)", "hsl(152, 60%, 42%)",
-    ];
-    return Object.entries(map).map(([name, value], i) => ({
-      name, value, color: colors[i % colors.length],
-    }));
-  }, [filtered]);
+    const summary = useMemo(() => computeSummary(filtered), [filtered]);
+    const monthlyData = useMemo(() => computeMonthlyData(filtered), [filtered]);
+    const categoryExpenses = useMemo(() => computeCategoryExpenses(filtered), [filtered]);
 
-  // Income source breakdown
-  const incomeSourceData = useMemo(() => {
-    const map: Record<string, number> = {};
-    filtered.filter(t => t.type === "income").forEach(t => {
-      const src = t.source || t.category;
-      map[src] = (map[src] || 0) + t.amount;
-    });
-    const colors = ["hsl(152, 60%, 42%)", "hsl(174, 62%, 38%)", "hsl(217, 70%, 55%)", "hsl(38, 92%, 50%)"];
-    return Object.entries(map).map(([name, value], i) => ({
-      name, value, color: colors[i % colors.length],
-    }));
-  }, [filtered]);
+    const savingsRate = useMemo(() => {
+        if (summary.totalIncome === 0) return 0;
+        return Math.round(((summary.totalIncome - summary.totalExpense) / summary.totalIncome) * 100);
+    }, [summary]);
 
-  // Daily spending trend
-  const dailyTrend = useMemo(() => {
-    const map: Record<string, { date: string; income: number; expense: number }> = {};
-    filtered.forEach(t => {
-      if (!map[t.date]) map[t.date] = { date: t.date, income: 0, expense: 0 };
-      map[t.date][t.type] += t.amount;
-    });
-    return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
-  }, [filtered]);
+    const topCategories = useMemo(
+        () => [...categoryExpenses].sort((a, b) => b.value - a.value).slice(0, 5),
+        [categoryExpenses]
+    );
 
-  const handleExport = () => {
-    downloadCSV(filtered, `finance-report-${format(startDate, "yyyy-MM-dd")}-to-${format(endDate, "yyyy-MM-dd")}.csv`);
-    toast({ title: "Report exported", description: `${filtered.length} transactions exported as CSV.` });
-  };
+    const maxCategoryValue = topCategories[0]?.value || 1;
 
-  const stats = [
-    { label: "Total Income", value: totalIncome, icon: TrendingUp, colorClass: "bg-income-muted text-income", prefix: "$" },
-    { label: "Total Expense", value: totalExpense, icon: TrendingDown, colorClass: "bg-expense-muted text-expense", prefix: "$" },
-    { label: "Net Savings", value: netSavings, icon: BarChart3, colorClass: "bg-savings-muted text-savings", prefix: "$" },
-    { label: "Savings Rate", value: savingsRate, icon: PieChartIcon, colorClass: "bg-accent text-accent-foreground", suffix: "%" },
-  ];
+    const applyPreset = (preset: typeof PRESETS[0]) => {
+        const { start, end } = preset.getValue();
+        setStartDate(start);
+        setEndDate(end);
+        setActivePreset(preset.label);
+    };
 
-  return (
-    <div className="space-y-6 lg:space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Reports</h1>
-          <p className="text-sm text-muted-foreground mt-1">Detailed financial analytics & export</p>
-        </div>
-        <Button onClick={handleExport} className="gap-2 w-fit">
-          <Download className="w-4 h-4" />
-          Export CSV
-        </Button>
-      </div>
+    const handleExport = () => {
+        if (filtered.length === 0) {
+            toast({ title: "Nothing to export", description: "No transactions in the selected date range.", variant: "destructive" });
+            return;
+        }
+        const from = startDate.replace(/-/g, "");
+        const to = endDate.replace(/-/g, "");
+        exportToCSV(filtered, `transactions_${from}_${to}.csv`);
+        toast({ title: "CSV Exported", description: `${filtered.length} transaction(s) downloaded.` });
+    };
 
-      {/* Date Range Filter */}
-      <motion.div {...fadeUp} className="bg-card rounded-xl p-4 sm:p-5 finance-card-shadow flex flex-wrap items-center gap-3">
-        <span className="text-sm font-medium text-muted-foreground">Date Range:</span>
-        <DatePicker label="From" date={startDate} onSelect={(d) => d && setStartDate(d)} />
-        <span className="text-muted-foreground">—</span>
-        <DatePicker label="To" date={endDate} onSelect={(d) => d && setEndDate(d)} />
-        <span className="text-xs text-muted-foreground ml-auto">{filtered.length} transactions</span>
-      </motion.div>
+    const handleStartChange = (v: string) => { setStartDate(v); setActivePreset(""); };
+    const handleEndChange = (v: string) => { setEndDate(v); setActivePreset(""); };
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s, i) => (
-          <motion.div
-            key={s.label}
-            {...fadeUp}
-            transition={{ ...fadeUp.transition, delay: i * 0.08 }}
-            className="bg-card rounded-xl p-5 finance-card-shadow"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-muted-foreground">{s.label}</span>
-              <div className={`w-9 h-9 rounded-lg ${s.colorClass} flex items-center justify-center`}>
-                <s.icon className="w-4.5 h-4.5" />
-              </div>
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-20">
+                <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
-            <p className="text-2xl font-bold text-foreground">
-              {s.prefix}{s.value.toLocaleString()}{s.suffix}
-            </p>
-          </motion.div>
-        ))}
-      </div>
+        );
+    }
 
-      {/* Charts row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Spending trend */}
-        <motion.div {...fadeUp} transition={{ ...fadeUp.transition, delay: 0.3 }} className="bg-card rounded-xl p-5 sm:p-6 finance-card-shadow">
-          <h3 className="text-base font-semibold text-foreground mb-4">Spending Trend</h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={dailyTrend}>
-              <defs>
-                <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(152, 60%, 42%)" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="hsl(152, 60%, 42%)" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="hsl(0, 72%, 55%)" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="hsl(0, 72%, 55%)" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(214, 20%, 90%)" />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(215, 15%, 50%)" }} tickFormatter={(v) => format(parseISO(v), "MMM d")} />
-              <YAxis tick={{ fontSize: 11, fill: "hsl(215, 15%, 50%)" }} />
-              <Tooltip contentStyle={{ borderRadius: "8px", fontSize: "13px", border: "1px solid hsl(214, 20%, 90%)" }} labelFormatter={(v) => format(parseISO(v as string), "PPP")} />
-              <Legend />
-              <Area type="monotone" dataKey="income" name="Income" stroke="hsl(152, 60%, 42%)" fill="url(#incomeGrad)" strokeWidth={2} />
-              <Area type="monotone" dataKey="expense" name="Expense" stroke="hsl(0, 72%, 55%)" fill="url(#expenseGrad)" strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </motion.div>
+    const summaryCards = [
+        { label: "Total Income", value: `₹${summary.totalIncome.toLocaleString()}`, icon: TrendingUp, colorClass: "bg-income-muted text-income" },
+        { label: "Total Expense", value: `₹${summary.totalExpense.toLocaleString()}`, icon: TrendingDown, colorClass: "bg-expense-muted text-expense" },
+        { label: "Net Balance", value: `₹${summary.balance.toLocaleString()}`, icon: Wallet, colorClass: summary.balance >= 0 ? "bg-savings-muted text-savings" : "bg-expense-muted text-expense" },
+        { label: "Savings Rate", value: `${savingsRate}%`, icon: Percent, colorClass: "bg-accent text-accent-foreground" },
+    ];
 
-        {/* Expense by category */}
-        <motion.div {...fadeUp} transition={{ ...fadeUp.transition, delay: 0.4 }} className="bg-card rounded-xl p-5 sm:p-6 finance-card-shadow">
-          <h3 className="text-base font-semibold text-foreground mb-4">Expense by Category</h3>
-          {categoryData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie data={categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} dataKey="value" nameKey="name">
-                  {categoryData.map((entry, i) => (
-                    <Cell key={i} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} contentStyle={{ borderRadius: "8px", fontSize: "13px" }} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-sm text-muted-foreground py-16 text-center">No expense data in selected range</p>
-          )}
-        </motion.div>
-      </div>
-
-      {/* Income sources & top expenses */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Income sources */}
-        <motion.div {...fadeUp} transition={{ ...fadeUp.transition, delay: 0.5 }} className="bg-card rounded-xl p-5 sm:p-6 finance-card-shadow">
-          <h3 className="text-base font-semibold text-foreground mb-4">Income Sources</h3>
-          {incomeSourceData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={incomeSourceData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(214, 20%, 90%)" />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "hsl(215, 15%, 50%)" }} />
-                <YAxis dataKey="name" type="category" tick={{ fontSize: 12, fill: "hsl(215, 15%, 50%)" }} width={80} />
-                <Tooltip formatter={(v: number) => `$${v.toLocaleString()}`} contentStyle={{ borderRadius: "8px", fontSize: "13px" }} />
-                <Bar dataKey="value" name="Amount" fill="hsl(152, 60%, 42%)" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="text-sm text-muted-foreground py-16 text-center">No income data in selected range</p>
-          )}
-        </motion.div>
-
-        {/* Top Expenses table */}
-        <motion.div {...fadeUp} transition={{ ...fadeUp.transition, delay: 0.6 }} className="bg-card rounded-xl p-5 sm:p-6 finance-card-shadow">
-          <h3 className="text-base font-semibold text-foreground mb-4">Top Expenses</h3>
-          <div className="space-y-3">
-            {filtered
-              .filter(t => t.type === "expense")
-              .sort((a, b) => b.amount - a.amount)
-              .slice(0, 6)
-              .map(t => (
-                <div key={t.id} className="flex items-center justify-between py-2.5 border-b border-border last:border-0">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{t.description}</p>
-                    <p className="text-xs text-muted-foreground">{t.category} · {format(parseISO(t.date), "MMM d, yyyy")}</p>
-                  </div>
-                  <span className="text-sm font-semibold text-expense">-${t.amount.toLocaleString()}</span>
+    return (
+        <div className="space-y-6 lg:space-y-8">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Reports</h1>
+                    <p className="text-sm text-muted-foreground mt-1">Detailed financial analytics for any date range</p>
                 </div>
-              ))}
-            {filtered.filter(t => t.type === "expense").length === 0 && (
-              <p className="text-sm text-muted-foreground py-8 text-center">No expenses in selected range</p>
-            )}
-          </div>
-        </motion.div>
-      </div>
-    </div>
-  );
-}
+                <Button
+                    onClick={handleExport}
+                    className="flex items-center gap-2 self-start sm:self-auto"
+                    id="export-csv-btn"
+                >
+                    <Download className="w-4 h-4" />
+                    Download CSV
+                </Button>
+            </div>
 
-function DatePicker({ label, date, onSelect }: { label: string; date: Date; onSelect: (d: Date | undefined) => void }) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="outline" className={cn("w-[160px] justify-start text-left font-normal text-sm gap-2")}>
-          <CalendarIcon className="w-3.5 h-3.5" />
-          {format(date, "MMM d, yyyy")}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
-        <Calendar mode="single" selected={date} onSelect={onSelect} initialFocus className="p-3 pointer-events-auto" />
-      </PopoverContent>
-    </Popover>
-  );
+            {/* Date Range Filters */}
+            <motion.div
+                {...fadeUp}
+                className="bg-card rounded-xl p-5 finance-card-shadow space-y-4"
+            >
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-1">
+                    <CalendarRange className="w-4 h-4 text-primary" />
+                    Date Range
+                </div>
+                {/* Quick Presets */}
+                <div className="flex flex-wrap gap-2">
+                    {PRESETS.map(p => (
+                        <button
+                            key={p.label}
+                            onClick={() => applyPreset(p)}
+                            id={`preset-${p.label.replace(/\s+/g, "-").toLowerCase()}`}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-200 ${activePreset === p.label
+                                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                    : "bg-background text-muted-foreground border-border hover:border-primary hover:text-foreground"
+                                }`}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+                {/* Custom Date Inputs */}
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex flex-col gap-1.5">
+                        <label htmlFor="start-date" className="text-xs text-muted-foreground font-medium">From</label>
+                        <input
+                            id="start-date"
+                            type="date"
+                            value={startDate}
+                            max={endDate}
+                            onChange={e => handleStartChange(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
+                        />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label htmlFor="end-date" className="text-xs text-muted-foreground font-medium">To</label>
+                        <input
+                            id="end-date"
+                            type="date"
+                            value={endDate}
+                            min={startDate}
+                            max={today()}
+                            onChange={e => handleEndChange(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors"
+                        />
+                    </div>
+                    <div className="flex items-end">
+                        <span className="text-xs text-muted-foreground pb-2.5">
+                            {filtered.length} transaction{filtered.length !== 1 ? "s" : ""} found
+                        </span>
+                    </div>
+                </div>
+            </motion.div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {summaryCards.map((card, i) => (
+                    <motion.div
+                        key={card.label}
+                        {...fadeUp}
+                        transition={{ ...fadeUp.transition, delay: i * 0.08 }}
+                        className="bg-card rounded-xl p-5 finance-card-shadow hover:finance-card-shadow-hover transition-shadow duration-300"
+                    >
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="text-sm font-medium text-muted-foreground">{card.label}</span>
+                            <div className={`w-9 h-9 rounded-lg ${card.colorClass} flex items-center justify-center`}>
+                                <card.icon className="w-4.5 h-4.5" />
+                            </div>
+                        </div>
+                        <p className="text-2xl font-bold text-foreground">{card.value}</p>
+                    </motion.div>
+                ))}
+            </div>
+
+            {/* Charts Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Bar Chart – Income vs Expense */}
+                <motion.div {...fadeUp} transition={{ ...fadeUp.transition, delay: 0.3 }} className="bg-card rounded-xl p-5 sm:p-6 finance-card-shadow">
+                    <h3 className="text-base font-semibold text-foreground mb-4">Income vs Expense</h3>
+                    {monthlyData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={260}>
+                            <BarChart data={monthlyData} barGap={4}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="hsl(214, 20%, 90%)" />
+                                <XAxis dataKey="month" tick={{ fontSize: 12, fill: "hsl(215, 15%, 50%)" }} />
+                                <YAxis tick={{ fontSize: 12, fill: "hsl(215, 15%, 50%)" }} tickFormatter={v => `₹${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} />
+                                <Tooltip
+                                    formatter={(value: number) => `₹${value.toLocaleString()}`}
+                                    contentStyle={{ background: "hsl(0,0%,100%)", border: "1px solid hsl(214,20%,90%)", borderRadius: "8px", fontSize: "13px" }}
+                                />
+                                <Legend />
+                                <Bar dataKey="income" name="Income" fill="hsl(152, 60%, 42%)" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="expense" name="Expense" fill="hsl(0, 72%, 55%)" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="flex items-center justify-center h-[260px] text-muted-foreground text-sm">
+                            No data in the selected range.
+                        </div>
+                    )}
+                </motion.div>
+
+                {/* Pie Chart – Expense by Category */}
+                <motion.div {...fadeUp} transition={{ ...fadeUp.transition, delay: 0.4 }} className="bg-card rounded-xl p-5 sm:p-6 finance-card-shadow">
+                    <h3 className="text-base font-semibold text-foreground mb-4">Expense by Category</h3>
+                    {categoryExpenses.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={260}>
+                            <PieChart>
+                                <Pie data={categoryExpenses} cx="50%" cy="50%" innerRadius={55} outerRadius={95} paddingAngle={3} dataKey="value" nameKey="name">
+                                    {categoryExpenses.map((entry, index) => (
+                                        <Cell key={index} fill={CATEGORY_COLORS[entry.name] || entry.color} />
+                                    ))}
+                                </Pie>
+                                <Tooltip formatter={(value: number) => `₹${value.toLocaleString()}`} contentStyle={{ borderRadius: "8px", fontSize: "13px" }} />
+                                <Legend />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="flex items-center justify-center h-[260px] text-muted-foreground text-sm">
+                            No expenses in the selected range.
+                        </div>
+                    )}
+                </motion.div>
+            </div>
+
+            {/* Top Spending Categories */}
+            {topCategories.length > 0 && (
+                <motion.div {...fadeUp} transition={{ ...fadeUp.transition, delay: 0.45 }} className="bg-card rounded-xl p-5 sm:p-6 finance-card-shadow">
+                    <h3 className="text-base font-semibold text-foreground mb-5">Top Spending Categories</h3>
+                    <div className="space-y-4">
+                        {topCategories.map((cat, i) => {
+                            const pct = Math.round((cat.value / maxCategoryValue) * 100);
+                            const color = CATEGORY_COLORS[cat.name] || cat.color;
+                            return (
+                                <div key={cat.name}>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-semibold text-muted-foreground w-5">#{i + 1}</span>
+                                            <span className="text-sm font-medium text-foreground">{cat.name}</span>
+                                        </div>
+                                        <span className="text-sm font-semibold text-foreground">₹{cat.value.toLocaleString()}</span>
+                                    </div>
+                                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full transition-all duration-500"
+                                            style={{ width: `${pct}%`, background: color }}
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </motion.div>
+            )}
+
+            {/* Transactions Table */}
+            <motion.div {...fadeUp} transition={{ ...fadeUp.transition, delay: 0.5 }} className="bg-card rounded-xl finance-card-shadow overflow-hidden">
+                <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-foreground">Transactions in Range</h3>
+                    <span className="text-xs text-muted-foreground">{filtered.length} records</span>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead className="bg-muted/40">
+                            <tr>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Date</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Type</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Category</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground">Description</th>
+                                <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                            {filtered.length === 0 ? (
+                                <tr>
+                                    <td colSpan={5} className="text-center text-muted-foreground py-12">
+                                        No transactions in the selected date range.
+                                    </td>
+                                </tr>
+                            ) : (
+                                filtered.map(t => (
+                                    <tr key={t.id} className="hover:bg-muted/30 transition-colors">
+                                        <td className="px-4 py-3 text-foreground">{t.date}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full ${t.type === "income" ? "bg-income-muted text-income" : "bg-expense-muted text-expense"}`}>
+                                                {t.type === "income" ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                                                {t.type === "income" ? "Income" : "Expense"}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-foreground">{t.category}</td>
+                                        <td className="px-4 py-3 text-muted-foreground">{t.description}</td>
+                                        <td className={`px-4 py-3 text-right font-semibold ${t.type === "income" ? "text-income" : "text-expense"}`}>
+                                            {t.type === "income" ? "+" : "-"}₹{t.amount.toLocaleString()}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </motion.div>
+        </div>
+    );
 }
