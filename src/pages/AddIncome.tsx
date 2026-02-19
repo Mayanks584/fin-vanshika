@@ -5,6 +5,8 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { TrendingUp } from "lucide-react";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
+import { addTransaction } from "@/services/transactionService";
 
 export default function AddIncome() {
   const [amount, setAmount] = useState("");
@@ -13,6 +15,7 @@ export default function AddIncome() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -25,15 +28,28 @@ export default function AddIncome() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validate()) return;
+    if (!validate() || !user) return;
     setLoading(true);
-    await new Promise(r => setTimeout(r, 600));
-    toast({ title: "Income added!", description: `$${Number(amount).toLocaleString()} from ${source}` });
-    setAmount("");
-    setSource("");
-    setDate(new Date().toISOString().split("T")[0]);
-    setErrors({});
-    setLoading(false);
+    try {
+      await addTransaction({
+        user_id: user.id,
+        type: "income",
+        amount: Number(amount),
+        category: source,
+        description: `Income from ${source}`,
+        source: source,
+        date: date,
+      });
+      toast({ title: "Income added!", description: `₹${Number(amount).toLocaleString()} from ${source}` });
+      setAmount("");
+      setSource("");
+      setDate(new Date().toISOString().split("T")[0]);
+      setErrors({});
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message || "Failed to add income", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -58,7 +74,7 @@ export default function AddIncome() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="amount">Amount ($)</Label>
+            <Label htmlFor="amount">Amount (₹)</Label>
             <Input id="amount" type="number" min="0" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} className={errors.amount ? "border-destructive" : ""} />
             {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
           </div>

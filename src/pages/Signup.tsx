@@ -35,10 +35,14 @@ export default function Signup() {
     setLoading(true);
     try {
       await signup(name, email, password);
-      toast({ title: "Account created!", description: "Welcome to FinanceManager." });
+      toast({ title: "Account created!", description: "Welcome to Personal Finance Manager." });
       navigate("/dashboard");
-    } catch {
-      toast({ title: "Signup failed", description: "Please try again.", variant: "destructive" });
+    } catch (err: any) {
+      toast({
+        title: "Signup failed",
+        description: err?.message || "Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }

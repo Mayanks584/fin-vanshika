@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { mockBudgets, type Budget } from "@/data/mockData";
+import { useState, useEffect } from "react";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -7,11 +6,69 @@ import { Label } from "@/components/ui/label";
 import { AlertTriangle, Wallet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
+import { getBudgets, upsertBudget, type Budget } from "@/services/budgetService";
+import { getTransactions, type Transaction } from "@/services/transactionService";
+
+const defaultCategories = ["Food", "Travel", "Shopping", "Rent", "Others"];
+
+interface BudgetWithSpent {
+  category: string;
+  limit: number;
+  spent: number;
+  id?: string;
+}
 
 export default function BudgetPage() {
-  const [budgets, setBudgets] = useState<Budget[]>(mockBudgets);
+  const { user } = useAuth();
+  const [budgets, setBudgets] = useState<BudgetWithSpent[]>([]);
   const [overallBudget, setOverallBudget] = useState("3000");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!user) return;
+
+    const loadData = async () => {
+      try {
+        const [dbBudgets, transactions] = await Promise.all([
+          getBudgets(user.id),
+          getTransactions(user.id),
+        ]);
+
+        // Calculate spent per category from transactions
+        const spentMap: Record<string, number> = {};
+        transactions
+          .filter((t: Transaction) => t.type === "expense")
+          .forEach((t: Transaction) => {
+            spentMap[t.category] = (spentMap[t.category] || 0) + t.amount;
+          });
+
+        // Merge budgets with spent data
+        const budgetMap = new Map<string, Budget>();
+        dbBudgets.forEach((b) => budgetMap.set(b.category, b));
+
+        const mergedBudgets: BudgetWithSpent[] = defaultCategories.map((cat) => {
+          const dbBudget = budgetMap.get(cat);
+          return {
+            category: cat,
+            limit: dbBudget ? dbBudget.limit_amount : 0,
+            spent: spentMap[cat] || 0,
+            id: dbBudget?.id,
+          };
+        });
+
+        setBudgets(mergedBudgets);
+      } catch (err) {
+        console.error("Failed to load budgets:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [user]);
 
   const totalSpent = budgets.reduce((s, b) => s + b.spent, 0);
   const totalLimit = Number(overallBudget) || 0;
@@ -20,9 +77,34 @@ export default function BudgetPage() {
     setBudgets(prev => prev.map(b => b.category === category ? { ...b, limit: Number(newLimit) || 0 } : b));
   };
 
-  const handleSave = () => {
-    toast({ title: "Budget saved!", description: "Your budget limits have been updated." });
+  const handleSave = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      await Promise.all(
+        budgets.map((b) =>
+          upsertBudget({
+            user_id: user.id,
+            category: b.category,
+            limit_amount: b.limit,
+          })
+        )
+      );
+      toast({ title: "Budget saved!", description: "Your budget limits have been updated." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message || "Failed to save budgets", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 lg:space-y-8 max-w-3xl mx-auto">
@@ -46,12 +128,12 @@ export default function BudgetPage() {
         </div>
         <div className="flex flex-col sm:flex-row gap-4 items-end">
           <div className="flex-1 space-y-2 w-full">
-            <Label>Budget Limit ($)</Label>
+            <Label>Budget Limit (₹)</Label>
             <Input type="number" value={overallBudget} onChange={e => setOverallBudget(e.target.value)} />
           </div>
           <div className="flex-1 w-full">
             <div className="flex justify-between text-sm mb-1">
-              <span className="text-muted-foreground">Spent: ${totalSpent.toLocaleString()}</span>
+              <span className="text-muted-foreground">Spent: ₹{totalSpent.toLocaleString()}</span>
               <span className={totalSpent > totalLimit ? "text-destructive font-medium" : "text-muted-foreground"}>
                 {totalLimit > 0 ? Math.round((totalSpent / totalLimit) * 100) : 0}%
               </span>
@@ -62,7 +144,7 @@ export default function BudgetPage() {
         {totalSpent > totalLimit && totalLimit > 0 && (
           <div className="mt-4 flex items-center gap-2 p-3 rounded-lg bg-warning-muted text-warning text-sm font-medium">
             <AlertTriangle className="w-4 h-4 shrink-0" />
-            You've exceeded your overall budget by ${(totalSpent - totalLimit).toLocaleString()}!
+            You've exceeded your overall budget by ₹{(totalSpent - totalLimit).toLocaleString()}!
           </div>
         )}
       </motion.div>
@@ -78,13 +160,13 @@ export default function BudgetPage() {
 
         {budgets.map(b => {
           const pct = b.limit > 0 ? Math.round((b.spent / b.limit) * 100) : 0;
-          const exceeded = b.spent > b.limit;
+          const exceeded = b.spent > b.limit && b.limit > 0;
           return (
             <div key={b.category} className="space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-foreground">{b.category}</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Limit: $</span>
+                  <span className="text-xs text-muted-foreground">Limit: ₹</span>
                   <Input
                     type="number"
                     value={b.limit}
@@ -94,21 +176,23 @@ export default function BudgetPage() {
                 </div>
               </div>
               <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span>Spent: ${b.spent.toLocaleString()}</span>
+                <span>Spent: ₹{b.spent.toLocaleString()}</span>
                 <span className={exceeded ? "text-destructive font-medium" : ""}>{pct}%</span>
               </div>
               <Progress value={Math.min(pct, 100)} className="h-2.5" />
               {exceeded && (
                 <div className="flex items-center gap-1.5 text-xs text-destructive font-medium">
                   <AlertTriangle className="w-3 h-3" />
-                  Exceeded by ${(b.spent - b.limit).toLocaleString()}
+                  Exceeded by ₹{(b.spent - b.limit).toLocaleString()}
                 </div>
               )}
             </div>
           );
         })}
 
-        <Button onClick={handleSave} className="w-full">Save Budget</Button>
+        <Button onClick={handleSave} className="w-full" disabled={saving}>
+          {saving ? "Saving..." : "Save Budget"}
+        </Button>
       </motion.div>
     </div>
   );

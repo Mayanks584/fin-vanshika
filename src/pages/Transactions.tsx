@@ -1,23 +1,40 @@
-import { useState, useMemo } from "react";
-import { mockTransactions, expenseCategories, type Transaction } from "@/data/mockData";
+import { useState, useEffect, useMemo } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Pencil, Trash2, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  getTransactions,
+  deleteTransaction,
+  type Transaction,
+} from "@/services/transactionService";
+
+const allCategories = ["Salary", "Freelance", "Investment", "Food", "Travel", "Shopping", "Rent", "Others"];
 
 export default function Transactions() {
-  const [transactions, setTransactions] = useState<Transaction[]>(mockTransactions);
+  const { user } = useAuth();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterMonth, setFilterMonth] = useState("all");
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!user) return;
+    getTransactions(user.id)
+      .then(setTransactions)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [user]);
 
   const filtered = useMemo(() => {
     return transactions.filter(t => {
       if (filterCategory !== "all" && t.category !== filterCategory) return false;
       if (filterMonth !== "all") {
-        const month = t.date.substring(0, 7); // YYYY-MM
+        const month = t.date.substring(0, 7);
         if (month !== filterMonth) return false;
       }
       return true;
@@ -29,14 +46,27 @@ export default function Transactions() {
     return Array.from(set).sort().reverse();
   }, [transactions]);
 
-  const handleDelete = (id: string) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
-    toast({ title: "Transaction deleted", description: "The transaction has been removed." });
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteTransaction(id);
+      setTransactions(prev => prev.filter(t => t.id !== id));
+      toast({ title: "Transaction deleted", description: "The transaction has been removed." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message || "Failed to delete transaction", variant: "destructive" });
+    }
   };
 
   const handleEdit = (id: string) => {
     toast({ title: "Edit", description: `Editing transaction ${id} (feature coming soon)` });
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -69,7 +99,7 @@ export default function Transactions() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
-            {["Salary", "Freelance", "Investment", ...expenseCategories].map(c => (
+            {allCategories.map(c => (
               <SelectItem key={c} value={c}>{c}</SelectItem>
             ))}
           </SelectContent>
@@ -115,7 +145,7 @@ export default function Transactions() {
                     <TableCell className="text-sm">{t.category}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{t.description}</TableCell>
                     <TableCell className={`text-sm font-semibold text-right ${t.type === "income" ? "text-income" : "text-expense"}`}>
-                      {t.type === "income" ? "+" : "-"}${t.amount.toLocaleString()}
+                      {t.type === "income" ? "+" : "-"}₹{t.amount.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">

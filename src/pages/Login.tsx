@@ -35,8 +35,12 @@ export default function Login() {
       await login(email, password);
       toast({ title: "Welcome back!", description: "You've been logged in successfully." });
       navigate("/dashboard");
-    } catch {
-      toast({ title: "Login failed", description: "Please check your credentials.", variant: "destructive" });
+    } catch (err: any) {
+      toast({
+        title: "Login failed",
+        description: err?.message || "Please check your credentials.",
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }

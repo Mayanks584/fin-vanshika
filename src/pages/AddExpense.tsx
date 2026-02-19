@@ -6,8 +6,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { TrendingDown } from "lucide-react";
-import { expenseCategories } from "@/data/mockData";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
+import { addTransaction } from "@/services/transactionService";
+
+const expenseCategories = ["Food", "Travel", "Shopping", "Rent", "Others"] as const;
 
 export default function AddExpense() {
   const [amount, setAmount] = useState("");
@@ -17,6 +20,7 @@ export default function AddExpense() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -29,16 +33,28 @@ export default function AddExpense() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validate()) return;
+    if (!validate() || !user) return;
     setLoading(true);
-    await new Promise(r => setTimeout(r, 600));
-    toast({ title: "Expense added!", description: `$${Number(amount).toLocaleString()} for ${category}` });
-    setAmount("");
-    setCategory("");
-    setDate(new Date().toISOString().split("T")[0]);
-    setDescription("");
-    setErrors({});
-    setLoading(false);
+    try {
+      await addTransaction({
+        user_id: user.id,
+        type: "expense",
+        amount: Number(amount),
+        category: category,
+        description: description || `${category} expense`,
+        date: date,
+      });
+      toast({ title: "Expense added!", description: `₹${Number(amount).toLocaleString()} for ${category}` });
+      setAmount("");
+      setCategory("");
+      setDate(new Date().toISOString().split("T")[0]);
+      setDescription("");
+      setErrors({});
+    } catch (err: any) {
+      toast({ title: "Error", description: err?.message || "Failed to add expense", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -63,7 +79,7 @@ export default function AddExpense() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="amount">Amount ($)</Label>
+            <Label htmlFor="amount">Amount (₹)</Label>
             <Input id="amount" type="number" min="0" step="0.01" placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} className={errors.amount ? "border-destructive" : ""} />
             {errors.amount && <p className="text-xs text-destructive">{errors.amount}</p>}
           </div>
